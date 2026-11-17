@@ -1,0 +1,35 @@
+{
+  "name": "realtime-message-board-backend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/src/server.js",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test test/*.test.ts",
+    "migrate": "tsx src/migrate.ts",
+    "db:start": "node scripts/local-db.mjs",
+    "admin:create": "tsx src/create-admin.ts",
+    "test:integration": "node scripts/run-integration.mjs",
+    "db:stop": "node scripts/stop-local-db.mjs"
+  },
+  "dependencies": {
+    "@fastify/cookie": "^11.1.5",
+    "argon2": "^0.45.2",
+    "dotenv": "^16.6.1",
+    "fastify": "^5.6.2",
+    "pg": "^8.16.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.0",
+    "@types/pg": "^8.15.6",
+    "embedded-postgres": "^18.6.0-beta.19",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3"
+  }
+}
