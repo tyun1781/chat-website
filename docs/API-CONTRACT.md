@@ -1,5 +1,76 @@
 # 实时留言板接口契约 v0.1
 
+## 第六阶段扩展：论坛标签
+
+帖子使用单标签，`GET /api/tags` 公开返回 `{data:[{id:"daily",label:"日常"},{id:"anime",label:"动漫"},{id:"games",label:"游戏"},{id:"music",label:"音乐"},{id:"share",label:"分享"}]}`。“全部”只作为前端过滤器，不是标签目录或存储值。
+
+- `POST /api/messages` 接受 `{body,tag?}`，tag 必须为目录中的 ID，缺省 daily；其余注册、权限、CSRF、Origin 和 Idempotency-Key 规则不变。null、空串及未知标签返回400 VALIDATION_ERROR。同键同正文但不同标签返回409 IDEMPOTENCY_CONFLICT；省略tag和显式daily等价。
+- `GET /api/messages?tag=anime&cursor=...&limit=20` 按指定标签筛选；不传tag为全部。过滤与分页均在数据库执行，游标只在同一标签筛选下复用。切换标签需取消旧请求、清空分页并从首屏重新开始。
+- Message 变为 `{id,author:{id,nickname},body,tag,createdAt}`，列表、发布响应、幂等重放和公共 message.created 事件都含tag。现有帖子及历史创建事件补充daily，原事件ID不变。旧客户端省略tag仍正常发布，忽略新增响应字段即可。
+- 公共 SSE 和 HTTP 事件补拉仍返回全部公开帖子/评论事件，不接受tag过滤，sync.eventCursor仍是公共流全局水位。前端推进每个事件游标，只将匹配当前标签的新增帖子加入可见列表；删除事件始终按ID移除。不得因忽略其他标签事件而停止推进水位。
+- 评论仍绑定帖子ID，不增加评论标签。私聊接口、数据表和独立事件流不受影响，不进入标签目录或公开筛选。
+
+固定目录目前只读；本阶段不提供自定义标签或修改已发布帖子标签。
+
+## 第五阶段扩展：匿名在线人数
+
+`GET /api/presence` 为公开只读接口，返回 `200 {"data":{"onlineCount":3}}`，仅返回匿名整数人数，不返回访客ID、账号或连接详情。前端建议每15秒读取一次，页面隐藏时可暂停轮询。
+
+“在线”近似定义为当前单个后端实例具有有效公共 `/api/events` SSE 连接的浏览器数；未登录访客和登录用户均统计，私聊流不额外增加人数。仅访问页面但尚未建立公共实时连接不计入。
+
+服务端随机生成并签名 HttpOnly、SameSite=Lax、Path=/ 的会话 cookie（开发 dev_presence，生产 __Host-presence 且 Secure），将同一浏览器的多个标签页去重。公开列表、在线查询和公共流可设置此cookie。通常在公共列表完成后再建立SSE即可共享标识。不同浏览器、隐私窗口或清除cookie后视为不同访客；首次多个无cookie标签同时打开可能短暂产生不同标识，因此不是精确的自然人人数。
+
+浏览器最后一个公共连接关闭后立即移除；异常断网需等待底层连接检测，页面数字还受15秒轮询间隔影响。重启清空内存并随客户端重连自动重新统计；不持久化访客标识，也不改变公共事件游标/补拉语义。
+
+基本限制：现有公共流总上限200；每个浏览器最多8个公共流；每IP每分钟最多60次公共建连、600次在线查询。超限返回429及Retry-After，容量满返回503；仅保留活跃访客，限流状态沿用有容量上限和定时清理的内存表。多实例部署前需要共享在线状态，目前该数值仅代表此本地实例。
+
+## 第四阶段扩展：帖子评论和一对一私聊
+
+原 messages 接口保持兼容，前端可将其称为“帖子”。新增接口以下均带 `/api` 前缀。成功/错误、Cookie、CSRF、Origin 和字符串事件 ID 沿用原规则；新增写接口必须登录并携带 X-CSRF-Token。评论、私信正文均为纯文本，统一换行、去首尾空白，1～500 Unicode 码点。发布评论和发送私信必须携带 UUID `Idempotency-Key`；同用户同键同目标和正文重放 200，首次 201，不一致 409。删除后的评论不能由重放复活。
+
+Comment：`{id,messageId,author:{id,nickname},body,createdAt}`。作者昵称为发布时快照。
+
+| 方法和路径 | 权限与请求 | 响应 |
+|---|---|---|
+| GET /messages/:id/comments | 公开，cursor 可选、limit 默认20/最多100 | `{data:Comment[],page:{nextCursor,hasMore},sync:{eventCursor}}` |
+| POST /messages/:id/comments | 登录+CSRF，`{body}`，Idempotency-Key | `{data:{comment:Comment}}`，201/重放200 |
+| DELETE /comments/:id | 评论作者本人+CSRF | 204，重复删除不重复发事件 |
+
+评论按 createdAt、id 倒序分页，前端可按设计倒转显示；游标不透明、原样传回。帖子不存在或已删除返回404。删除帖子后其评论不再公开查询，但保留数据库记录。GET 评论的 eventCursor 是公共流快照水位，打开评论后可从此水位补拉以消除加载期间缺口，不应直接推进整个公共列表的已处理水位。
+
+公共 SSE `/events` 和公共 HTTP `/messages/events` 增加：
+
+- `comment.created` → `{comment:Comment}`
+- `comment.deleted` → `{commentId,messageId,deletedAt}`
+
+评论与公开帖子共用公共事件序号。原客户端可忽略不认识的事件；新客户端对当前展开帖子合并评论并按 ID 去重。私聊永不进入公共事件表或公共 API。
+
+私聊 UserSummary：`{id,nickname}`；DirectMessage：`{id,conversationId,sender:{id,nickname},body,createdAt}`。
+Conversation：`{id,otherUser:{id,nickname},createdAt,updatedAt,lastMessage:DirectMessage|null}`，仅会话参与者可取得。
+
+| 方法和路径 | 权限与请求 | 响应 |
+|---|---|---|
+| GET /users/search?q=昵称 | 登录，q为1～32字，limit默认20/最多20 | `{data:UserSummary[]}`；只查活跃账号，排除本人，不返回用户名/邮箱 |
+| GET /dm/conversations | 登录，cursor可选、limit默认20/最多100 | `{data:Conversation[],page:{nextCursor,hasMore},sync:{eventCursor}}` |
+| POST /dm/conversations | 登录+CSRF，`{userId}` | `{data:{conversation:Conversation}}`；新建201，已有200；不允许自己或禁用用户 |
+| GET /dm/conversations/:id/messages | 仅参与者，cursor可选、limit默认30/最多100 | `{data:DirectMessage[],page:{nextCursor,hasMore},sync:{eventCursor}}` |
+| POST /dm/conversations/:id/messages | 仅参与者+CSRF，`{body}`，Idempotency-Key | `{data:{message:DirectMessage}}`；首次201/重放200 |
+| GET /dm/events?after=事件ID | 登录，limit默认100/最多500 | `{data:[{id,type,data,createdAt}],page:{nextCursor,hasMore}}`；仅本人参与会话事件 |
+| GET /dm/stream?after=事件ID | 登录，独立 SSE，会话 Cookie 鉴权 | 只推送本人参与的会话事件，Last-Event-ID 优先 |
+
+会话列表按创建时间及ID倒序稳定分页；可在客户端按 updatedAt 展示近期活跃会话，但翻页仍原样使用服务端游标。私信按创建时间及ID倒序分页，聊天窗口反转后显示旧→新。双方会话唯一，并发打开不会重复创建。非参与者查询/写入会话统一404，不泄漏会话存在性。对方禁用时拒绝新发送403 RECIPIENT_UNAVAILABLE（仅对方不可用，不应退出本人登录），已有历史仅活跃的参与者可读。新增评论限制每用户20次/分钟，私信每用户30次/分钟，新增会话每用户20次/分钟，搜索每用户60次/分钟。
+
+私聊事件采用与公共流独立的字符串 ID，不得混用游标：
+
+- `conversation.created` → `{conversationId}`；接收后刷新会话列表。
+- `dm.message.created` → `{conversationId,message:DirectMessage}`；更新当前会话，并刷新会话列表预览。
+- `auth.expired` → `{}`，关闭流；前端立即清空私聊状态并要求重新登录。
+- `sync.reset` → `{reason:"invalid_cursor"}`，关闭流；重新查询会话列表获取新水位。
+
+首次从会话列表 sync.eventCursor 建立私聊 SSE；重连通过 `/dm/events` 补拉，空页游标保持after。流每次读取事件前重新验证会话/账号状态，退出、过期、禁用后不再传出私聊内容；约500ms内关闭连接。普通 GET/写操作均独立鉴权。私聊事件只允许参与者读取，不提供全局私聊列表。前端在退出或切换账号时立即关闭私聊连接、取消请求并清空所有私聊缓存。
+
+以上为当前阶段新增约定，后文“待实现”状态描述保留作第一阶段历史；实际实现进度见 BACKEND-PHASE4.md。
+
 状态：第一阶段设计契约。当前只有 `GET /api/health`、`GET /api/ready` 实现，其余下述接口均待第二阶段实现，不能对真实后端调用并预期成功。前端可据此制作 mock。邮箱验证、找回密码为后续规划。
 
 ## 通用约定
@@ -7,7 +78,7 @@
 - 同源部署，前缀 `/api`，JSON UTF-8，所有时间为 UTC ISO 8601（例如 `2026-11-16T08:00:00.000Z`）。UUID 字符串作为业务 ID；事件 ID 为十进制字符串，禁止转为 JS Number。
 - 成功：`{"data": ...}`；分页额外提供 `"page":{"nextCursor":null,"hasMore":false}`。204 无响应体。
 - 失败：`{"error":{"code":"VALIDATION_ERROR","message":"输入不符合要求","requestId":"...","fields":{"body":"请输入 1～500 字"}}}`。fields 可省略。不得返回 SQL、堆栈、凭证。
-- 状态码：400 VALIDATION_ERROR / INVALID_CURSOR；401 UNAUTHENTICATED / INVALID_CREDENTIALS；403 FORBIDDEN / ACCOUNT_DISABLED / CSRF_INVALID；404 NOT_FOUND；409 USERNAME_TAKEN / IDEMPOTENCY_CONFLICT / LAST_ADMIN；410 EVENT_CURSOR_EXPIRED；413 PAYLOAD_TOO_LARGE；429 RATE_LIMITED（Retry-After 秒）；500 INTERNAL_ERROR；503 NOT_READY。
+- 状态码：400 VALIDATION_ERROR / INVALID_CURSOR；401 UNAUTHENTICATED / INVALID_CREDENTIALS；403 FORBIDDEN / ACCOUNT_DISABLED / RECIPIENT_UNAVAILABLE / CSRF_INVALID；404 NOT_FOUND；409 USERNAME_TAKEN / IDEMPOTENCY_CONFLICT / LAST_ADMIN；410 EVENT_CURSOR_EXPIRED；413 PAYLOAD_TOO_LARGE；429 RATE_LIMITED（Retry-After 秒）；500 INTERNAL_ERROR；503 NOT_READY。
 - 昵称 1～32 Unicode 码点，去首尾空白；正文去首尾空白后 1～500 Unicode 码点，纯文本保留内部换行；统一换行 LF。用户名转小写，匹配 `[a-z0-9_]{3,32}`。密码 12～128 字符，不裁剪、不悄悄截断。请求体上限 16 KiB。未知字段拒绝。
 - 默认普通用户；角色和账号状态不得由注册、资料更新请求设置。公开 UserSummary 只有 id、nickname。用户名、邮箱、状态、角色不得出现在公开留言作者中。
 

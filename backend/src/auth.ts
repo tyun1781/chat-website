@@ -57,7 +57,7 @@ export function registerAuth(app:FastifyInstance,pool:Pool,options:{origins:stri
   async function session(client:PoolClient,request:FastifyRequest,csrf=false,optional=false):Promise<SessionRow|undefined> {
     const value=request.cookies[cookieName];
     if(!value || !/^[A-Za-z0-9_-]{43}$/.test(value)){if(optional)return;throw new ApiError(401,'UNAUTHENTICATED','请先登录');}
-    const result=await client.query<SessionRow>('SELECT u.*,s.id AS session_id,s.csrf_token_hash,s.expires_at FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=$1 AND s.revoked_at IS NULL AND s.expires_at>now() FOR UPDATE OF u,s',[digest(value)]);
+    const result=await client.query<SessionRow>('SELECT u.*,s.id AS session_id,s.csrf_token_hash,s.expires_at FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=$1 AND s.revoked_at IS NULL AND s.expires_at>now() FOR NO KEY UPDATE OF u,s',[digest(value)]);
     const row=result.rows[0];
     if(!row){if(optional)return;throw new ApiError(401,'UNAUTHENTICATED','登录已过期，请重新登录');}
     if(row.status!=='active')throw new ApiError(403,'ACCOUNT_DISABLED','账号已被禁用');
@@ -119,4 +119,5 @@ export function registerAuth(app:FastifyInstance,pool:Pool,options:{origins:stri
     });
     clear(reply);return reply.code(204).send();
   });
+  return {session,limit};
 }

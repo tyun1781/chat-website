@@ -1,6 +1,11 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { ApiError, clearSession, login, request, restoreSession, sessionNotice, user, type User } from './api'
+import ForumHome from './components/ForumHome.vue'
+import InboxPanel from './components/InboxPanel.vue'
+import AccountHome from './components/AccountHome.vue'
+import { usePresence } from './usePresence'
+import type { Person } from './forumTypes'
 type Panel = 'login' | 'register' | 'profile' | 'password' | null
 let previouslyEntered = false
 try { previouslyEntered = sessionStorage.getItem('board-entered') === 'yes' } catch { /* storage is optional */ }
@@ -10,7 +15,14 @@ const dialog = ref<HTMLDialogElement>()
 const username = ref(''), password = ref(''), nickname = ref(''), currentPassword = ref(''), newPassword = ref('')
 const busy = ref(false), restoring = ref(true), error = ref(''), notice = ref(''), connectionError = ref('')
 const fields = ref<Record<string, string>>({})
-const draft = ref('')
+const view = ref<'forum' | 'inbox' | 'home' | 'tools' | 'about'>('forum')
+const presence = usePresence()
+const recipient = ref<Person | null>(null)
+function openChat(person: Person) {
+  if (!user.value) { open('login'); return }
+  recipient.value = person; view.value = 'inbox'
+}
+function openInbox() { recipient.value = null; view.value = 'inbox' }
 const titles = { login: '欢迎回来', register: '认识一下吧', profile: '你的个人资料', password: '修改密码' }
 const title = computed(() => panel.value ? titles[panel.value] : '')
 function enter() {
@@ -61,55 +73,43 @@ async function restore() {
   finally { restoring.value = false }
 }
 watch(panel, () => nextTick(() => dialog.value?.querySelector<HTMLInputElement>('input')?.focus()))
-onMounted(() => { document.addEventListener('keydown', onKey); void restore() })
-onUnmounted(() => document.removeEventListener('keydown', onKey))
+watch(entered, value => { document.body.style.overflow = value ? '' : 'hidden' })
+onMounted(() => { document.addEventListener('keydown', onKey); document.body.style.overflow = entered.value ? '' : 'hidden'; void restore() })
+onUnmounted(() => { document.removeEventListener('keydown', onKey); document.body.style.overflow = '' })
 </script>
 
 <template>
   <Transition name="entrance">
-    <button v-if="!entered" class="entry" @click="enter" aria-label="点击任意处进入留言板">
-      <span class="entry-brand">一处放下想法的地方</span>
-      <span class="entry-paper"><span>你好，<br>过路的人。</span><span class="entry-smile" aria-hidden="true">☺</span></span>
-      <span class="entry-action">点击任意处进入 <span aria-hidden="true">↗</span></span>
+    <button v-if="!entered" class="entry" @click="enter" aria-label="点击任意处进入讨论区">
+      <picture class="welcome-background" aria-hidden="true"><source media="(max-width: 600px)" srcset="/images/sora-welcome-mobile.jpg"><img src="/images/sora-welcome-aqua.jpg" alt="" fetchpriority="high"></picture>
+      <span class="welcome-shade" aria-hidden="true"></span>
+      <span class="entry-kicker">Welcome to</span>
+      <span class="entry-title">INCH<span class="entry-greeting">Ciallo (∠・ω&lt;)⌒☆</span></span>
+      <span class="entry-action">点击任意处进入</span>
       <span class="entry-key">也可以按回车键</span>
     </button>
   </Transition>
   <div class="site" :inert="!entered" :aria-hidden="!entered">
     <header class="header">
-      <a class="wordmark" href="#" aria-label="留个言吧首页"><span class="logo" aria-hidden="true">言</span>留个言吧</a>
-      <nav aria-label="账号导航">
+      <a class="wordmark" href="#" aria-label="INCH 返回讨论广场" @click.prevent="view = 'forum'"><span class="logo" aria-hidden="true">✦</span><span>INCH<small lang="ja">ここで、ひとやすみ。</small></span></a>
+      <nav class="main-nav" aria-label="主导航"><button :class="{ selected: view === 'home' }" :aria-current="view === 'home' ? 'page' : undefined" @click="view = 'home'">主页</button><button :class="{ selected: view === 'tools' }" :aria-current="view === 'tools' ? 'page' : undefined" @click="view = 'tools'">工具</button><button :class="{ selected: view === 'about' }" :aria-current="view === 'about' ? 'page' : undefined" @click="view = 'about'">关于作者</button><span class="nav-separator" aria-hidden="true"></span><button :class="{ selected: view === 'forum' }" :aria-current="view === 'forum' ? 'page' : undefined" @click="view = 'forum'">广场</button><button :class="{ selected: view === 'inbox' }" :aria-current="view === 'inbox' ? 'page' : undefined" @click="openInbox">私聊</button></nav>
+      <nav class="account-nav" aria-label="账号导航">
+        <span class="presence-indicator" :class="{ unavailable: presence.unavailable.value }" role="status" title="当前保持连接的访客浏览器数量，同一浏览器去重">{{ presence.label.value }}</span>
         <span v-if="restoring" class="muted" role="status">正在恢复登录…</span>
-        <template v-else-if="user">
-          <button class="account-button" @click="open('profile')">{{ user.nickname }}<span class="account-dot" aria-hidden="true"></span></button>
-          <button class="text-button" :disabled="busy" @click="logout">退出</button>
-        </template>
-        <template v-else><button class="text-button" @click="open('login')">登录</button><button class="small-button" @click="open('register')">创建账号</button></template>
+        <template v-else-if="user"><button class="account-button" @click="view = 'home'">{{ user.nickname }}</button><button class="text-button" :disabled="busy" @click="logout">退出</button></template>
+        <template v-else><button class="text-button" @click="open('login')">登录</button><button class="small-button" @click="open('register')">注册</button></template>
       </nav>
     </header>
     <main>
-      <section class="hero" aria-labelledby="main-title">
-        <div><h1 id="main-title" tabindex="-1">留个言吧。</h1><p>今天的心情，突然的灵感，<br>或者，一句简单的你好。</p></div>
-        <div class="hero-note" aria-hidden="true"><span>让想法<br>在这里相遇</span><svg viewBox="0 0 120 60"><path d="M8 12 C30 60 85 55 108 10 M91 17 L110 7 L112 29" /></svg></div>
-      </section>
       <div v-if="sessionNotice" class="banner warning" role="alert">{{ sessionNotice }} <button @click="open('login')">重新登录</button></div>
       <div v-if="connectionError" class="banner warning" role="alert">{{ connectionError }} <button :disabled="restoring" @click="restore">重试连接</button></div>
       <div v-if="notice && !panel" class="banner" role="status">{{ notice }}</div>
-      <div class="board-layout">
-        <section class="conversation" aria-labelledby="board-title">
-          <div class="section-heading"><h2 id="board-title">大家的留言</h2><span class="status-label">即将开放</span></div>
-          <div class="empty-state"><div class="empty-bubble" aria-hidden="true"><span></span><span></span><span></span></div><h3>留一个位置，给你的声音。</h3><p>留言区正在准备中。<br>现在可以创建账号，选一个喜欢的昵称。</p><button v-if="!user" class="text-link" @click="open('register')">创建我的账号</button><p v-else class="welcome-note">{{ user.nickname }}，很高兴在这里遇见你。</p></div>
-        </section>
-        <aside class="write-area" aria-labelledby="write-title">
-          <div class="paper"><div class="paper-top"><h2 id="write-title">想说点什么？</h2><span aria-hidden="true">✳</span></div><p class="composer-note">{{ user ? `以 ${user.nickname} 的身份` : '登录后，让大家认识你。' }}</p>
-            <label class="sr-only" for="draft">留言草稿（暂不支持发布）</label><textarea id="draft" v-model="draft" maxlength="1000" placeholder="先把想法写在这里…" aria-describedby="draft-help" rows="5"></textarea>
-            <div class="draft-meta"><span>本页临时草稿</span><span>{{ Array.from(draft).length }} 字</span></div>
-            <button class="primary-button publish" disabled>留言功能即将开放</button><p id="draft-help" class="draft-help">暂不能发布或保存，刷新后草稿会清空。</p>
-          </div>
-          <div class="community-note"><h3>在这里，轻松一点。</h3><p>友善交流，尊重不同的想法。<br>请勿公开个人隐私或他人的信息。</p></div>
-        </aside>
-      </div>
+      <ForumHome v-show="view === 'forum'" :restoring="restoring" @login="open('login')" @profile="open('profile')" @chat="openChat" @inbox="openInbox" />
+      <InboxPanel v-if="view === 'inbox'" :recipient="recipient" @login="open('login')" @opened="recipient = null" />
+      <AccountHome v-if="view === 'home'" @login="open('login')" @register="open('register')" @nickname="open('profile')" @password="open('password')" @forum="view = 'forum'" />
+      <section v-if="view === 'tools' || view === 'about'" class="pending-page" :aria-label="view === 'tools' ? '工具' : '关于作者'"><span class="pending-mark" aria-hidden="true">…</span><h1>{{ view === 'tools' ? '工具' : '关于作者' }}</h1><p>待开放，内容稍后补充。</p><button class="text-link" @click="view = 'forum'">返回讨论广场</button></section>
     </main>
-    <footer><span>留个言吧</span><span>每一句话，都有人听见。</span></footer>
+    <footer><span class="footer-brand">INCH <span lang="ja">またね ( ´ ▽ ` )ﾉ</span></span><span>inch.zy <a href="https://github.com/tyun1781/chat-website" target="_blank" rel="noopener noreferrer">GitHub?</a></span></footer>
   </div>
   <dialog ref="dialog" class="account-dialog" aria-labelledby="account-title" @cancel.prevent="close" @click="event => { if (event.target === dialog) close() }">
     <div class="dialog-body">
