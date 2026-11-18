@@ -1,8 +1,9 @@
-import {createHash, randomBytes, randomUUID, timingSafeEqual} from 'node:crypto';
+import {createHash, randomBytes, randomInt, randomUUID, timingSafeEqual} from 'node:crypto';
 import argon2 from 'argon2';
 import cookie from '@fastify/cookie';
 import type {FastifyInstance, FastifyReply, FastifyRequest} from 'fastify';
 import type {Pool, PoolClient} from 'pg';
+import type {Mailer} from './mail.js';
 
 export class ApiError extends Error {
   constructor(public statusCode:number, public code:string, message:string) {super(message);}
@@ -26,6 +27,12 @@ export function nickname(input:unknown):string {
   if(typeof input!=='string' || [...input.trim()].length<1 || [...input.trim()].length>32) throw new ApiError(400,'VALIDATION_ERROR','昵称需为 1～32 个字符');
   return input.trim();
 }
+export function email(input:unknown):string {
+  if(typeof input!=='string') throw new ApiError(400,'VALIDATION_ERROR','请输入邮箱地址');
+  const value=input.trim().toLowerCase();
+  if(value.length<6 || value.length>254 || !/^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/.test(value)) throw new ApiError(400,'VALIDATION_ERROR','邮箱格式不正确');
+  return value;
+}
 type UserRow={id:string;username:string;nickname:string;role:string;status:string;created_at:Date;updated_at:Date;password_hash:string};
 const publicUser=(u:UserRow)=>({id:u.id,username:u.username,nickname:u.nickname,role:u.role,status:u.status,createdAt:u.created_at.toISOString(),updatedAt:u.updated_at.toISOString()});
 type SessionRow=UserRow & {session_id:string;csrf_token_hash:string;expires_at:Date};
@@ -34,8 +41,9 @@ export async function transaction<T>(pool:Pool, run:(client:PoolClient)=>Promise
   try {await client.query('BEGIN');const result=await run(client);await client.query('COMMIT');return result;}
   catch(error){await client.query('ROLLBACK');throw error;} finally{client.release();}
 }
-export function registerAuth(app:FastifyInstance,pool:Pool,options:{origins:string[];production:boolean}) {
+export function registerAuth(app:FastifyInstance,pool:Pool,options:{origins:string[];production:boolean;mail?:Mailer|null}) {
   app.register(cookie);
+  const mail=options.mail??null;
   const cookieName=options.production?'__Host-session':'dev_session';
   const cookieOptions={httpOnly:true,secure:options.production,sameSite:'lax' as const,path:'/'};
   const clear=(reply:FastifyReply)=>reply.clearCookie(cookieName,cookieOptions);
@@ -66,15 +74,52 @@ export function registerAuth(app:FastifyInstance,pool:Pool,options:{origins:stri
   }
   // The dummy hash makes unknown-user logins perform the same password work.
   const dummyHash=argon2.hash(randomBytes(32),passwordOptions);
+  app.post('/api/auth/email-code',async(request,reply)=>{
+    limit('email-code-ip:'+request.ip,10,3600_000,reply);
+    if(!mail)throw new ApiError(503,'MAIL_NOT_CONFIGURED','邮件服务尚未配置，暂时无法注册');
+    const body=objectBody(request.body,['email']);
+    const target=email(body.email);
+    limit('email-code-address:'+target,5,3600_000,reply);
+    const taken=await pool.query('SELECT 1 FROM users WHERE lower(email)=$1 LIMIT 1',[target]);
+    if(taken.rowCount)throw new ApiError(409,'EMAIL_TAKEN','该邮箱已被注册');
+    const code=String(randomInt(0,1_000_000)).padStart(6,'0');
+    await pool.query("INSERT INTO email_verifications(id,email,code_hash,expires_at) VALUES($1,$2,$3,now()+interval '10 minutes')",[randomUUID(),target,digest(code)]);
+    try {await mail.sendVerificationCode(target,code,10);}
+    catch(error){request.log.error({err:error},'Verification email delivery failed');throw new ApiError(502,'MAIL_FAILED','验证码邮件发送失败，请稍后重试');}
+    return reply.code(204).send();
+  });
   app.post('/api/auth/register',async(request,reply)=>{
     limit('register:'+request.ip,5,3600_000,reply);
-    const body=objectBody(request.body,['username','password','nickname']);
-    const name=username(body.username), pass=password(body.password), nick=nickname(body.nickname);
+    const body=objectBody(request.body,['username','password','nickname','email','code']);
+    const name=username(body.username), pass=password(body.password), nick=nickname(body.nickname), target=email(body.email);
+    const submitted=body.code;
+    if(typeof submitted!=='string'||!/^\d{6}$/.test(submitted))throw new ApiError(400,'CODE_INVALID','请输入 6 位邮箱验证码');
     const hash=await argon2.hash(pass,passwordOptions);
+    // 先校验验证码。错误次数必须落在事务之外，否则抛错回滚会把 attempts 一起撤掉，
+    // 爆破保护就失效了。
+    const pending=(await pool.query<{id:string;code_hash:string;attempts:number}>(
+      'SELECT id,code_hash,attempts FROM email_verifications WHERE lower(email)=$1 AND consumed_at IS NULL AND expires_at>now() ORDER BY created_at DESC LIMIT 1',[target])).rows[0];
+    if(!pending)throw new ApiError(400,'CODE_INVALID','验证码已失效，请重新获取');
+    if(pending.attempts>=5)throw new ApiError(429,'CODE_INVALID','验证码错误次数过多，请重新获取');
+    if(!timingSafeEqual(Buffer.from(digest(submitted),'hex'),Buffer.from(pending.code_hash,'hex'))){
+      await pool.query('UPDATE email_verifications SET attempts=attempts+1 WHERE id=$1',[pending.id]);
+      throw new ApiError(400,'CODE_INVALID','验证码不正确');
+    }
     try {
-      const result=await pool.query<UserRow>('INSERT INTO users(id,username,nickname,password_hash) VALUES($1,$2,$3,$4) RETURNING *',[randomUUID(),name,nick,hash]);
-      return reply.code(201).send({data:{user:publicUser(result.rows[0]!)}});
-    } catch(error){if((error as {code?:string}).code==='23505')throw new ApiError(409,'USERNAME_TAKEN','用户名已被使用');throw error;}
+      const created=await transaction(pool,async(client)=>{
+        // 条件更新保证同一个验证码只能兑换一次（并发提交也只有一个能成功）。
+        const consumed=await client.query('UPDATE email_verifications SET consumed_at=now() WHERE id=$1 AND consumed_at IS NULL RETURNING id',[pending.id]);
+        if(!consumed.rowCount)throw new ApiError(400,'CODE_INVALID','验证码已失效，请重新获取');
+        return client.query<UserRow>('INSERT INTO users(id,username,nickname,password_hash,email,email_verified_at) VALUES($1,$2,$3,$4,$5,now()) RETURNING *',[randomUUID(),name,nick,hash,target]);
+      });
+      return reply.code(201).send({data:{user:publicUser(created.rows[0]!)}});
+    } catch(error){
+      if((error as {code?:string}).code==='23505'){
+        const emailConflict=(error as {constraint?:string}).constraint==='users_email_unique';
+        throw new ApiError(409,emailConflict?'EMAIL_TAKEN':'USERNAME_TAKEN',emailConflict?'该邮箱已被注册':'用户名已被使用');
+      }
+      throw error;
+    }
   });
   app.post('/api/auth/login',async(request,reply)=>{
     limit('login-ip:'+request.ip,20,900_000,reply);

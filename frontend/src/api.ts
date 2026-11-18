@@ -48,3 +48,4 @@ export async function request<T>(path: string, method = 'GET', body?: unknown, r
   return (options.envelope ? payload : payload.data) as T
 }
 export async function login(username: string, password: string) { acceptSession(await request<Session>('/auth/login', 'POST', { username, password })) }
+export async function sendEmailCode(address: string) { await request<void>('/auth/email-code', 'POST', { email: address }) }

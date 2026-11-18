@@ -1,0 +1,17 @@
+# 注意：Caddyfile 必须留在构建上下文里（Dockerfile 的 web 阶段会 COPY 它），
+# 不要在这里排除。同理不要排除 Dockerfile / docker-compose.yml。
+.git
+.gitignore
+**/node_modules
+**/dist
+backend/.local
+**/.env
+**/.env.*
+!**/.env.example
+**/*.log
+**/*.pid
+docs
+tests
+README.md
+DEPLOY.md
+.dockerignore

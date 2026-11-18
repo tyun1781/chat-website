@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import { ApiError, clearSession, login, request, restoreSession, sessionNotice, user, type User } from './api'
+import { ApiError, clearSession, login, request, restoreSession, sendEmailCode, sessionNotice, user, type User } from './api'
 import ForumHome from './components/ForumHome.vue'
 import InboxPanel from './components/InboxPanel.vue'
 import AccountHome from './components/AccountHome.vue'
@@ -20,6 +20,9 @@ const entered = ref(previouslyEntered)
 const panel = ref<Panel>(null)
 const dialog = ref<HTMLDialogElement>()
 const username = ref(''), password = ref(''), nickname = ref(''), currentPassword = ref(''), newPassword = ref('')
+const emailAddress = ref(''), code = ref('')
+const sendingCode = ref(false), codeCountdown = ref(0)
+let codeTimer: ReturnType<typeof setInterval> | null = null
 const busy = ref(false), restoring = ref(true), error = ref(''), notice = ref(''), connectionError = ref('')
 const fields = ref<Record<string, string>>({})
 const view = ref<'forum' | 'inbox' | 'home' | 'tools' | 'about' | 'admin' | 'notifications' | 'gal' | 'logs'>('forum')
@@ -40,7 +43,7 @@ function enter() {
 }
 function onKey(event: KeyboardEvent) { if (!entered.value && event.key === 'Enter') { event.preventDefault(); enter() } }
 function open(next: Panel) {
-  error.value = ''; fields.value = {}; notice.value = ''; password.value = ''; currentPassword.value = ''; newPassword.value = ''
+  error.value = ''; fields.value = {}; notice.value = ''; password.value = ''; currentPassword.value = ''; newPassword.value = ''; code.value = ''
   nickname.value = user.value?.nickname || ''
   panel.value = next
   nextTick(() => { if (!dialog.value?.open) dialog.value?.showModal() })
@@ -52,8 +55,8 @@ async function submit() {
   error.value = ''; fields.value = {}; busy.value = true
   try {
     if (panel.value === 'register') {
-      await request('/auth/register', 'POST', { username: username.value.trim().toLowerCase(), password: password.value, nickname: nickname.value.trim() })
-      panel.value = 'login'; password.value = ''; notice.value = '注册成功，请使用刚刚创建的账号登录。'
+      await request('/auth/register', 'POST', { username: username.value.trim().toLowerCase(), password: password.value, nickname: nickname.value.trim(), email: emailAddress.value.trim(), code: code.value.trim() })
+      panel.value = 'login'; password.value = ''; code.value = ''; notice.value = '注册成功，请使用刚刚创建的账号登录。'
     } else if (panel.value === 'login') {
       await login(username.value.trim().toLowerCase(), password.value)
       notice.value = '登录成功，欢迎回来。'; busy.value = false; close()
@@ -65,6 +68,23 @@ async function submit() {
       clearSession(); panel.value = 'login'; currentPassword.value = ''; newPassword.value = ''; password.value = ''; notice.value = '密码已修改，所有设备已退出。请使用新密码登录。'
     }
   } catch (e) { report(e) } finally { busy.value = false }
+}
+async function sendCode() {
+  if (sendingCode.value || codeCountdown.value > 0) return
+  error.value = ''; fields.value = {}
+  const address = emailAddress.value.trim()
+  if (!address) { error.value = '请先填写邮箱地址，再获取验证码。'; return }
+  sendingCode.value = true
+  try {
+    await sendEmailCode(address)
+    notice.value = '验证码已发送，请查收邮箱（10 分钟内有效，注意垃圾邮件箱）。'
+    codeCountdown.value = 60
+    if (codeTimer) clearInterval(codeTimer)
+    codeTimer = setInterval(() => {
+      codeCountdown.value -= 1
+      if (codeCountdown.value <= 0 && codeTimer) { clearInterval(codeTimer); codeTimer = null }
+    }, 1000)
+  } catch (e) { report(e) } finally { sendingCode.value = false }
 }
 async function logout() {
   if (busy.value) return
@@ -92,7 +112,7 @@ watch(() => user.value?.id, id => {
   }
 }, { immediate: true })
 onMounted(() => { document.addEventListener('keydown', onKey); document.body.style.overflow = entered.value ? '' : 'hidden'; void restore() })
-onUnmounted(() => { document.removeEventListener('keydown', onKey); document.body.style.overflow = ''; if (unreadTimer) clearInterval(unreadTimer) })
+onUnmounted(() => { document.removeEventListener('keydown', onKey); document.body.style.overflow = ''; if (unreadTimer) clearInterval(unreadTimer); if (codeTimer) clearInterval(codeTimer) })
 </script>
 
 <template>
@@ -150,6 +170,15 @@ onUnmounted(() => { document.removeEventListener('keydown', onKey); document.bod
           <template v-if="panel === 'register' || panel === 'login'">
             <label for="password">密码</label><input id="password" v-model="password" type="password" :autocomplete="panel === 'register' ? 'new-password' : 'current-password'" required :minlength="panel === 'register' ? 12 : undefined" maxlength="128" aria-describedby="password-hint"><p id="password-hint" class="field-hint">{{ panel === 'register' ? '12～128 个字符，建议使用不易猜测的长密码。' : '请输入你的账号密码。' }}</p>
           </template>
+          <template v-if="panel === 'register'">
+            <label for="email">邮箱</label><input id="email" v-model="emailAddress" type="email" autocomplete="email" inputmode="email" autocapitalize="none" spellcheck="false" required maxlength="254" aria-describedby="email-hint"><p id="email-hint" class="field-hint">用于接收验证码，注册后不公开显示。</p>
+            <label for="email-code">邮箱验证码</label>
+            <div class="code-row">
+              <input id="email-code" v-model="code" inputmode="numeric" autocomplete="one-time-code" required pattern="[0-9]{6}" maxlength="6" placeholder="6 位数字" aria-describedby="email-code-hint">
+              <button type="button" class="text-link" :disabled="sendingCode || codeCountdown > 0" @click="sendCode">{{ codeCountdown > 0 ? codeCountdown + ' 秒后重发' : sendingCode ? '发送中…' : '获取验证码' }}</button>
+            </div>
+            <p id="email-code-hint" class="field-hint">先填邮箱再点「获取验证码」，10 分钟内有效。</p>
+          </template>
           <template v-if="panel === 'profile'"><p class="account-name">用户名：{{ user?.username }}</p><button type="button" class="text-link" @click="open('password')">修改密码</button></template>
           <template v-if="panel === 'password'">
             <label for="current-password">当前密码</label><input id="current-password" v-model="currentPassword" type="password" autocomplete="current-password" required maxlength="128">
@@ -163,3 +192,9 @@ onUnmounted(() => { document.removeEventListener('keydown', onKey); document.bod
     </div>
   </dialog>
 </template>
+
+<style scoped>
+.code-row{display:flex;align-items:center;gap:12px}
+.code-row input{flex:1 1 auto;min-width:0}
+.code-row .text-link{flex:0 0 auto;white-space:nowrap;font-size:13px}
+</style>

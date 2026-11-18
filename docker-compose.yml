@@ -1,0 +1,68 @@
+name: inch
+
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: inch
+      POSTGRES_USER: inch
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?请先在 .env 中设置 POSTGRES_PASSWORD}
+      TZ: Asia/Shanghai
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U inch -d inch"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: api
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: "3000"
+      DATABASE_URL: postgresql://inch:${POSTGRES_PASSWORD}@db:5432/inch
+      DB_CONNECT_TIMEOUT_MS: "5000"
+      ALLOWED_ORIGINS: https://${SITE_DOMAIN:?请先在 .env 中设置 SITE_DOMAIN}
+      TRUST_PROXY: "true"
+      # 邮箱验证码。留空则站点正常运行，但注册会返回 503。
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-465}
+      SMTP_SECURE: ${SMTP_SECURE:-true}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      MAIL_FROM: ${MAIL_FROM:-}
+    depends_on:
+      db:
+        condition: service_healthy
+    # 不对外发布端口：只有 web 容器能访问 api:3000。
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: web
+    restart: unless-stopped
+    environment:
+      SITE_ADDRESS: ${SITE_DOMAIN:?请先在 .env 中设置 SITE_DOMAIN}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:

@@ -1,0 +1,31 @@
+# SITE_ADDRESS 由 docker-compose 注入，值为裸域名（如 inch.example.com）。
+# Caddy 会为它自动申请并续期 Let's Encrypt 证书（需要 80/443 放通、域名已解析到本机）。
+{$SITE_ADDRESS} {
+	encode zstd gzip
+
+	# 后端 API。flush_interval -1 关闭响应缓冲，SSE（/api/events、私聊事件流）才能实时到达。
+	handle /api/* {
+		reverse_proxy api:3000 {
+			flush_interval -1
+		}
+	}
+
+	# 前端 SPA：找不到的路径回退到 index.html。
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}
