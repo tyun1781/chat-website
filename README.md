@@ -1,54 +1,99 @@
-# 实时公共留言板 · 第一阶段
+# INCH Community
 
-工程位置：`C:\Users\26425\AI-Work\realtime-message-board`。
+INCH 是一个本地运行的二次元社区网站：Vue 3 + TypeScript 前端，Node.js + Fastify + TypeScript 后端，PostgreSQL 数据库。
 
-本阶段完成后端骨架、PostgreSQL 初始迁移、健康检查和接口契约；注册登录、留言业务、管理后台和 SSE 尚未实现。完整契约见 `docs/API-CONTRACT.md`。
+当前代码包含账号、公开帖子、论坛标签、评论、一对一私聊、实时更新、匿名在线人数，以及管理员申请与管理台。网站尚未部署公网，管理员功能仍在本地开发验证阶段。
+
+## 已实现
+
+- 注册、登录、会话恢复、退出、昵称修改、密码修改
+- 公开帖子、游标分页、发帖、本人删除、幂等提交
+- 日常 / 动漫 / 游戏 / 音乐 / 分享五类论坛标签与筛选
+- 帖子评论、实时评论事件、本人删除
+- 一对一私聊、昵称搜索、独立实时事件流
+- 公共 SSE、HTTP 事件补拉、断线恢复
+- 匿名在线人数
+- 管理员申请、审批、用户禁用/恢复、管理员删除帖子、审计日志
+- 管理员删除帖子时，作者会收到站内通知，包含删除理由和帖子摘要
+- INCH 入场页、关于作者页、移动端布局
+
+管理员、邮箱验证和找回密码、完整专项测试和公网部署仍属于后续范围。没有默认管理员账号。
 
 ## 本地启动
 
-要求 Node.js 22+、npm、PostgreSQL 16+。在 PowerShell 中：
+要求 Node.js 22+、npm。项目依赖已安装时可跳过 `npm ci`。
+
+### 1. 启动项目内 PostgreSQL
+
+在第一个终端：
 
 ```powershell
 cd C:\Users\26425\AI-Work\realtime-message-board\backend
-npm ci
-Copy-Item .env.example .env
-# 将 .env 的 DATABASE_URL 修改为你专用于本项目的开发数据库连接。
-npm run migrate
-npm run dev
+npm run db:start
 ```
 
-默认监听 `127.0.0.1:3000`。数据库就绪检查：http://127.0.0.1:3000/api/ready；进程检查：http://127.0.0.1:3000/api/health。没有数据库时进程仍可启动，但 ready 必须503，不能据 health 200宣称项目已完整可用。
+数据库监听 `127.0.0.1:55432`，开发库为 `message_board_dev`。首次启动会生成已被 Git 忽略的 `.env` 与 `.local`。停止数据库使用 `npm run db:stop`，或在数据库终端按 Ctrl+C。
 
-需要新建隔离开发数据库时，在已有 PostgreSQL 管理连接中执行（自行替换开发密码，切勿用于生产）：
+### 2. 迁移并启动后端
 
-```sql
-CREATE ROLE message_board LOGIN PASSWORD 'replace-with-local-development-password';
-CREATE DATABASE message_board_dev OWNER message_board;
-```
-
-不要改动已有业务数据库。当前阶段没有自动安装 PostgreSQL、Docker 或系统服务，也没有默认管理员账号。迁移会使用当前 DATABASE_URL 指向的库，运行前务必核对库名。
-
-## 构建和验证
+在第二个终端：
 
 ```powershell
-npm run typecheck
-npm test
+cd C:\Users\26425\AI-Work\realtime-message-board\backend
+npm run migrate
 npm run build
 npm start
 ```
 
-单元测试使用替身数据库，只验证健康检查分支及配置检查；不能证明真实 PostgreSQL 可连接或迁移通过。实际验证记录见 `docs/VALIDATION.md`。
+后端：`http://127.0.0.1:3000`。就绪检查：`http://127.0.0.1:3000/api/ready`。返回 200 且 `schema` 为 `ready` 才表示数据库和迁移可用。
 
-## 结构和设计
+### 3. 启动前端
 
-- `backend/src/app.ts`：应用工厂，健康接口和统一错误处理。
-- `backend/src/server.ts`：监听、连接池生命周期和优雅关闭。
-- `backend/src/migrate.ts`：排序执行 SQL，迁移级事务、advisory lock、校验和防止修改已应用迁移。使用 `npm run migrate`（源码执行），无自动回滚；撤销结构需新建迁移。
-- `backend/migrations/001_initial.sql`：用户、会话、留言、请求幂等、事件历史、管理审计。
-- `backend/.env.example`：示例配置；真实 `.env` 已忽略，不提交。
+在第三个终端：
 
-UUID 由应用的 crypto.randomUUID 生成；创建时间由数据库生成；更新用户时应用须显式维护 updated_at。用户名小写唯一，公开昵称为留言发布时快照。角色/状态、长度、引用关系也有数据库约束。软删除保留审计依据；只查询未删除留言。
+```powershell
+cd C:\Users\26425\AI-Work\realtime-message-board\frontend
+npm run dev
+```
 
-密码、会话、CSRF、管理员初始化及事务一致性细节见接口契约；这些是下一阶段实施要求，当前未实现认证模块。初始迁移的邮箱字段仅预留。事件与幂等记录第一版不自动清理，上线前制定保留和备份计划。
+访问：`http://127.0.0.1:5173`。前端通过 Vite 的 `/api` 代理连接后端。
 
-公网部署未执行；未来使用 HTTPS、反向代理、独立凭证、数据库备份，并按契约配置 SSE。不要直接把本地示例密码用于公网。
+## 管理员初始化
+
+系统没有默认管理员。当前开发库已将 `inch` 账号设为管理员，不需要再执行初始化命令；只有全新数据库或还没有管理员时才需要下面的步骤。密码只从标准输入读取，不写入命令历史：
+
+```powershell
+cd C:\Users\26425\AI-Work\realtime-message-board\backend
+$secret = Read-Host '初始管理员密码（12～128字符）' -AsSecureString
+$pointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secret)
+try {
+  [Runtime.InteropServices.Marshal]::PtrToStringBSTR($pointer) | npm run admin:create -- admin 管理员
+} finally {
+  [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($pointer)
+  Remove-Variable secret,pointer
+}
+```
+
+已有管理员时该命令会拒绝再次创建。普通用户可在“工具 → 申请管理员权限”提交申请，由现有管理员审批。
+
+## 验证
+
+```powershell
+cd backend
+npm run typecheck
+npm run build
+npm test
+
+cd ..\frontend
+npm run typecheck
+npm run build
+```
+
+`npm test` 只包含健康检查和配置单元测试；真实数据库的账号集成测试默认跳过。完整专项验收仍按用户安排在后续恢复，不应把当前检查当成全站验收。
+
+## 数据与安全
+
+- `.env`、`.env.test`、`backend/.local/`、`node_modules/`、`dist/`、截图产物都被 Git 忽略，不应提交。
+- 发布前必须使用正式 PostgreSQL、HTTPS、独立密钥和数据库备份；项目内嵌 PostgreSQL 仅用于本地开发。
+- 生产环境需要配置反向代理、`trustProxy` 和真实 IP，否则 IP 限流会共享代理地址。
+- 管理员申请、账号禁用、管理员删除帖子都会写 `admin_audit_logs`。

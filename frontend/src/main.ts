@@ -4,4 +4,5 @@ import './style.css'
 import './forum.css'
 import './phase5.css'
 import './inch.css'
+import './pages.css'
 createApp(App).mount('#app')

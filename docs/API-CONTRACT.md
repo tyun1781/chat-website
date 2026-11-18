@@ -1,5 +1,35 @@
 # 实时留言板接口契约 v0.1
 
+## 管理员申请与管理员操作（本次实现）
+
+新增迁移 `004_admin_applications.sql`。管理接口要求当前账号为 active admin；写操作同时要求 CSRF 与允许的 Origin。申请接口要求登录，但不要求管理员身份。
+
+Application：`{id,user:{id,username,nickname,role,status},statement,status:"pending"|"approved"|"rejected",reviewedBy:{id,nickname}|null,reviewedAt,reviewReason,createdAt,updatedAt}`。同一用户最多一条 pending 申请；通过后用户角色变为 admin，拒绝必须填写理由。
+
+| 方法和路径 | 权限与请求 | 响应 |
+|---|---|---|
+| POST /admin-applications | 登录+CSRF，`{statement}`，1～500 字 | 201 `{data:{application:Application}}`；已有 pending 返回 409 APPLICATION_PENDING；已是管理员 409 ALREADY_ADMIN |
+| GET /admin-applications/me | 登录 | 200 `{data:{application:Application|null}}`，返回本人最近一条 |
+| GET /admin/applications | active admin，query: status/cursor/limit（20/最大100） | 200 `{data:Application[],page:{nextCursor,hasMore}}` |
+| PATCH /admin/applications/:id | active admin+CSRF，`{decision:"approve"|"reject",reason?}` | 200 `{data:{application}}`；拒绝必须 reason；不能审批自己；非 pending 409 APPLICATION_ALREADY_REVIEWED；申请人禁用 409 APPLICANT_UNAVAILABLE；申请人已是管理员 409 ALREADY_ADMIN |
+| GET /admin/users | active admin，query: q（用户名/昵称，最多64）、status、cursor、limit | 200 `{data:User[],page}`，按创建时间和 ID 倒序 |
+| PATCH /admin/users/:id/status | active admin+CSRF，`{status:"active"|"disabled",reason}` | 200 `{data:{user:User}}`；不能禁用自己或最后一个 active admin，返回 409 LAST_ADMIN；禁用时在同一事务撤销全部会话并写审计 |
+| DELETE /admin/messages/:id | active admin+CSRF，`{reason}` | 204，软删除并写 message.deleted 事件和审计；重复删除仍 204，不重复发事件或审计 |
+
+新增错误码：APPLICATION_PENDING / ALREADY_ADMIN / APPLICANT_UNAVAILABLE / APPLICATION_ALREADY_REVIEWED。管理员申请审批与账号状态、帖子删除的审计写入 `admin_audit_logs`，action 分别为 `admin_application.approved`、`admin_application.rejected`、`user.disabled`、`user.enabled`、`message.deleted`。
+
+## 站内通知（本次实现）
+
+新增迁移 `005_notifications.sql`。Notification：`{id,type,title,body,data,readAt,createdAt}`，仅本人可读。管理员删除帖子时，在同一事务给帖子作者写入一条 `type="message.deleted"` 的通知：`title` 为“你的帖子被管理员删除”，`body` 为管理员填写的删除理由，`data` 含 `{messageId,reason,excerpt}`。重复删除不重复通知。
+
+| 方法和路径 | 权限与请求 | 响应 |
+|---|---|---|
+| GET /notifications | 登录，query: cursor/limit（默认20/最大100） | 200 `{data:Notification[],page:{nextCursor,hasMore},unreadCount}` |
+| PATCH /notifications/:id/read | 登录+CSRF | 204；重复标记已读仍 204；不属于本人或不存在返回 404 |
+| POST /notifications/read-all | 登录+CSRF | 200 `{data:{updated}}`，将本人全部未读标为已读 |
+
+通知不进入公共 SSE、公共事件表或私聊事件流；前端通过未读轮询和通知页读取。管理员删除通知与删除帖子、写 `message.deleted` 事件、写审计在同一数据库事务中提交。
+
 ## 第六阶段扩展：论坛标签
 
 帖子使用单标签，`GET /api/tags` 公开返回 `{data:[{id:"daily",label:"日常"},{id:"anime",label:"动漫"},{id:"games",label:"游戏"},{id:"music",label:"音乐"},{id:"share",label:"分享"}]}`。“全部”只作为前端过滤器，不是标签目录或存储值。
@@ -71,7 +101,7 @@ Conversation：`{id,otherUser:{id,nickname},createdAt,updatedAt,lastMessage:Dire
 
 以上为当前阶段新增约定，后文“待实现”状态描述保留作第一阶段历史；实际实现进度见 BACKEND-PHASE4.md。
 
-状态：第一阶段设计契约。当前只有 `GET /api/health`、`GET /api/ready` 实现，其余下述接口均待第二阶段实现，不能对真实后端调用并预期成功。前端可据此制作 mock。邮箱验证、找回密码为后续规划。
+实现状态：账号、帖子、标签、评论、私聊、SSE、在线人数和管理员申请/管理接口均已实现；邮箱验证与找回密码仍为后续规划。下述段落保留早期契约语义，管理员申请相关接口以顶部“管理员申请与管理员操作”为准。
 
 ## 通用约定
 

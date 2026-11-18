@@ -4,7 +4,12 @@ import { ApiError, clearSession, login, request, restoreSession, sessionNotice, 
 import ForumHome from './components/ForumHome.vue'
 import InboxPanel from './components/InboxPanel.vue'
 import AccountHome from './components/AccountHome.vue'
+import ToolsPage from './components/ToolsPage.vue'
+import AboutPage from './components/AboutPage.vue'
+import AdminPanel from './components/AdminPanel.vue'
+import NotificationsPanel from './components/NotificationsPanel.vue'
 import { usePresence } from './usePresence'
+import { clearNotifications, refreshUnread, unreadNotifications } from './notificationsApi'
 import type { Person } from './forumTypes'
 type Panel = 'login' | 'register' | 'profile' | 'password' | null
 let previouslyEntered = false
@@ -15,7 +20,7 @@ const dialog = ref<HTMLDialogElement>()
 const username = ref(''), password = ref(''), nickname = ref(''), currentPassword = ref(''), newPassword = ref('')
 const busy = ref(false), restoring = ref(true), error = ref(''), notice = ref(''), connectionError = ref('')
 const fields = ref<Record<string, string>>({})
-const view = ref<'forum' | 'inbox' | 'home' | 'tools' | 'about'>('forum')
+const view = ref<'forum' | 'inbox' | 'home' | 'tools' | 'about' | 'admin' | 'notifications'>('forum')
 const presence = usePresence()
 const recipient = ref<Person | null>(null)
 function openChat(person: Person) {
@@ -62,7 +67,7 @@ async function submit() {
 async function logout() {
   if (busy.value) return
   busy.value = true
-  try { await request('/auth/logout', 'POST'); clearSession(); notice.value = '已退出登录。' }
+  try { await request('/auth/logout', 'POST'); clearSession(); clearNotifications(); notice.value = '已退出登录。'; if (view.value === 'admin' || view.value === 'notifications') view.value = 'forum' }
   catch (e) { notice.value = e instanceof Error ? e.message : '退出失败，请重试。' }
   finally { busy.value = false }
 }
@@ -74,8 +79,18 @@ async function restore() {
 }
 watch(panel, () => nextTick(() => dialog.value?.querySelector<HTMLInputElement>('input')?.focus()))
 watch(entered, value => { document.body.style.overflow = value ? '' : 'hidden' })
+let unreadTimer: ReturnType<typeof setInterval> | null = null
+watch(() => user.value?.id, id => {
+  if (id) {
+    void refreshUnread()
+    if (!unreadTimer) unreadTimer = setInterval(() => { void refreshUnread() }, 30000)
+  } else {
+    clearNotifications()
+    if (unreadTimer) { clearInterval(unreadTimer); unreadTimer = null }
+  }
+}, { immediate: true })
 onMounted(() => { document.addEventListener('keydown', onKey); document.body.style.overflow = entered.value ? '' : 'hidden'; void restore() })
-onUnmounted(() => { document.removeEventListener('keydown', onKey); document.body.style.overflow = '' })
+onUnmounted(() => { document.removeEventListener('keydown', onKey); document.body.style.overflow = ''; if (unreadTimer) clearInterval(unreadTimer) })
 </script>
 
 <template>
@@ -92,7 +107,7 @@ onUnmounted(() => { document.removeEventListener('keydown', onKey); document.bod
   <div class="site" :inert="!entered" :aria-hidden="!entered">
     <header class="header">
       <a class="wordmark" href="#" aria-label="INCH 返回讨论广场" @click.prevent="view = 'forum'"><span class="logo" aria-hidden="true">✦</span><span>INCH<small lang="ja">ここで、ひとやすみ。</small></span></a>
-      <nav class="main-nav" aria-label="主导航"><button :class="{ selected: view === 'home' }" :aria-current="view === 'home' ? 'page' : undefined" @click="view = 'home'">主页</button><button :class="{ selected: view === 'tools' }" :aria-current="view === 'tools' ? 'page' : undefined" @click="view = 'tools'">工具</button><button :class="{ selected: view === 'about' }" :aria-current="view === 'about' ? 'page' : undefined" @click="view = 'about'">关于作者</button><span class="nav-separator" aria-hidden="true"></span><button :class="{ selected: view === 'forum' }" :aria-current="view === 'forum' ? 'page' : undefined" @click="view = 'forum'">广场</button><button :class="{ selected: view === 'inbox' }" :aria-current="view === 'inbox' ? 'page' : undefined" @click="openInbox">私聊</button></nav>
+      <nav class="main-nav" aria-label="主导航"><button :class="{ selected: view === 'home' }" :aria-current="view === 'home' ? 'page' : undefined" @click="view = 'home'">主页</button><button :class="{ selected: view === 'tools' }" :aria-current="view === 'tools' ? 'page' : undefined" @click="view = 'tools'">工具</button><button :class="{ selected: view === 'about' }" :aria-current="view === 'about' ? 'page' : undefined" @click="view = 'about'">关于作者</button><span class="nav-separator" aria-hidden="true"></span><button :class="{ selected: view === 'forum' }" :aria-current="view === 'forum' ? 'page' : undefined" @click="view = 'forum'">广场</button><button :class="{ selected: view === 'inbox' }" :aria-current="view === 'inbox' ? 'page' : undefined" @click="openInbox">私聊</button><button v-if="user" :class="{ selected: view === 'notifications' }" :aria-current="view === 'notifications' ? 'page' : undefined" @click="view = 'notifications'">通知<span v-if="unreadNotifications" class="nav-badge">{{ unreadNotifications > 99 ? '99+' : unreadNotifications }}</span></button><button v-if="user?.role === 'admin'" :class="{ selected: view === 'admin' }" :aria-current="view === 'admin' ? 'page' : undefined" @click="view = 'admin'">管理</button></nav>
       <nav class="account-nav" aria-label="账号导航">
         <span class="presence-indicator" :class="{ unavailable: presence.unavailable.value }" role="status" title="当前保持连接的访客浏览器数量，同一浏览器去重">{{ presence.label.value }}</span>
         <span v-if="restoring" class="muted" role="status">正在恢复登录…</span>
@@ -107,7 +122,10 @@ onUnmounted(() => { document.removeEventListener('keydown', onKey); document.bod
       <ForumHome v-show="view === 'forum'" :restoring="restoring" @login="open('login')" @profile="open('profile')" @chat="openChat" @inbox="openInbox" />
       <InboxPanel v-if="view === 'inbox'" :recipient="recipient" @login="open('login')" @opened="recipient = null" />
       <AccountHome v-if="view === 'home'" @login="open('login')" @register="open('register')" @nickname="open('profile')" @password="open('password')" @forum="view = 'forum'" />
-      <section v-if="view === 'tools' || view === 'about'" class="pending-page" :aria-label="view === 'tools' ? '工具' : '关于作者'"><span class="pending-mark" aria-hidden="true">…</span><h1>{{ view === 'tools' ? '工具' : '关于作者' }}</h1><p>待开放，内容稍后补充。</p><button class="text-link" @click="view = 'forum'">返回讨论广场</button></section>
+      <ToolsPage v-if="view === 'tools'" @login="open('login')" @admin="view = 'admin'" />
+      <AboutPage v-if="view === 'about'" @forum="view = 'forum'" />
+      <AdminPanel v-if="view === 'admin'" @login="open('login')" @forum="view = 'forum'" />
+      <NotificationsPanel v-if="view === 'notifications'" @login="open('login')" @forum="view = 'forum'" />
     </main>
     <footer><span class="footer-brand">INCH <span lang="ja">またね ( ´ ▽ ` )ﾉ</span></span><span>inch.zy <a href="https://github.com/tyun1781/chat-website" target="_blank" rel="noopener noreferrer">GitHub?</a></span></footer>
   </div>

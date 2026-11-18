@@ -5,10 +5,12 @@ import {registerMessages} from './messages.js';
 import {registerComments} from './comments.js';
 import {registerDirectMessages} from './direct-messages.js';
 import {registerPresence} from './presence.js';
+import {registerAdmin} from './admin.js';
+import {registerNotifications} from './notifications.js';
 export interface Database { query(sql: string): Promise<unknown> }
 export function buildApp(db: Database, logger = false, auth?:{pool:Pool;origins:string[];production:boolean}) {
   const app = Fastify({logger, bodyLimit:16384, requestIdHeader:false});
-  if(auth){const access=registerAuth(app,auth.pool,auth);const presence=registerPresence(app,access,auth.production);registerMessages(app,auth.pool,access,presence);registerComments(app,auth.pool,access);registerDirectMessages(app,auth.pool,access);}
+  if(auth){const access=registerAuth(app,auth.pool,auth);const presence=registerPresence(app,access,auth.production);registerMessages(app,auth.pool,access,presence);registerComments(app,auth.pool,access);registerDirectMessages(app,auth.pool,access);registerAdmin(app,auth.pool,access);registerNotifications(app,auth.pool,access);}
   app.addHook('onRequest', async (_request, reply) => {reply.header('Cache-Control','no-store');});
   app.get('/api/health', async () => ({data:{status:'ok'}}));
   app.get('/api/ready', async (_request, reply) => {
@@ -20,7 +22,7 @@ export function buildApp(db: Database, logger = false, auth?:{pool:Pool;origins:
       await db.query('SELECT id,tag FROM messages LIMIT 0');
       await db.query('SELECT id FROM message_events LIMIT 0');
       await db.query('SELECT id FROM admin_audit_logs LIMIT 0');
-      if(auth){await db.query('SELECT id FROM comments LIMIT 0');await db.query('SELECT id FROM dm_conversations LIMIT 0');await db.query('SELECT id FROM dm_messages LIMIT 0');await db.query('SELECT id FROM dm_events LIMIT 0');}
+      if(auth){await db.query('SELECT id FROM admin_applications LIMIT 0');await db.query('SELECT id FROM notifications LIMIT 0');await db.query('SELECT id FROM comments LIMIT 0');await db.query('SELECT id FROM dm_conversations LIMIT 0');await db.query('SELECT id FROM dm_messages LIMIT 0');await db.query('SELECT id FROM dm_events LIMIT 0');}
       return {data:{status:'ready',database:'up',schema:'ready'}};
     } catch {
       return reply.code(503).send({error:{code:'NOT_READY',message:'数据库不可用或迁移未完成',requestId:_request.id}});
