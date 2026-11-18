@@ -2,6 +2,12 @@
 
 ## 2026-11-19
 
+### 新增：数据库备份脚本
+
+- `backup.sh`：`pg_dump` 导出 + gzip 完整性校验 + `pg_dump` 结束标记校验，失败即删除半成品并返回非零。
+- 默认保留 7 天，路径与保留天数可用 `BACKUP_DIR` / `BACKUP_KEEP_DAYS` 覆盖。
+- 配套 `/etc/cron.d/inch-backup` 每日 04:00 执行。
+
 ### 新增：注册必须绑定邮箱（验证码）
 
 - 新用户注册时必须填写邮箱，并通过 6 位验证码验证，验证通过后 `users.email_verified_at` 落库。

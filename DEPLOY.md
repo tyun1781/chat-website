@@ -344,24 +344,55 @@ docker compose up -d
 
 ### 数据库备份（重要）
 
+仓库里带了 `backup.sh`，做三件事：`pg_dump` 导出 → 校验 gzip 结构和 `pg_dump` 结束标记 → 删除 7 天前的旧备份。**校验不过会删掉半成品并返回非零**，不会留下一个看着正常其实截断的备份。
+
+先手动跑一次，确认能出文件：
+
 ```bash
-mkdir -p /opt/backups
-docker compose exec -T db pg_dump -U inch inch | gzip > /opt/backups/inch-$(date +%F).sql.gz
+cd /opt/chat-website
+chmod +x backup.sh
+bash backup.sh
+ls -lh /opt/backups/
 ```
 
-建议加个每日定时任务，只留最近 7 天：
+然后挂到 cron（**先确认 cron 在跑**）：
 
 ```bash
+systemctl is-active cron || (apt-get install -y cron && systemctl enable --now cron)
+
 cat > /etc/cron.d/inch-backup <<'EOF'
-0 4 * * * root cd /opt/chat-website && docker compose exec -T db pg_dump -U inch inch | gzip > /opt/backups/inch-$(date +\%F).sql.gz && find /opt/backups -name 'inch-*.sql.gz' -mtime +7 -delete
+0 4 * * * root /opt/chat-website/backup.sh >> /var/log/inch-backup.log 2>&1
 EOF
+chmod 644 /etc/cron.d/inch-backup
 ```
 
-恢复：
+> `/etc/cron.d/` 里的 cron 表达式比普通 crontab 多一个**用户名字段**（`root`），漏了它任务永远不会执行。另外文件末尾必须有换行。
+
+第二天检查是否跑了：
 
 ```bash
-gunzip -c /opt/backups/inch-2026-11-18.sql.gz | docker compose exec -T db psql -U inch -d inch
+cat /var/log/inch-backup.log
 ```
+
+**一定要做一次还原演练**——没还原过的备份不算备份：
+
+```bash
+cd /opt/chat-website
+# 建一个临时库，把最新备份灌进去
+docker compose exec -T db psql -U inch -d postgres -c 'CREATE DATABASE restore_check'
+zcat "$(ls -t /opt/backups/inch-*.sql.gz | head -1)" | docker compose exec -T db psql -U inch -d restore_check -q
+docker compose exec -T db psql -U inch -d restore_check -c 'SELECT count(*) AS users FROM users'
+# 确认数字对得上，再删掉
+docker compose exec -T db psql -U inch -d postgres -c 'DROP DATABASE restore_check'
+```
+
+真正的灾难恢复（覆盖线上库，**会丢掉备份之后的新数据**）：
+
+```bash
+zcat /opt/backups/inch-2026-11-19-0400.sql.gz | docker compose exec -T db psql -U inch -d inch
+```
+
+> **备份和工作数据库在同一台机器的同一块盘上。** 机器或磁盘挂掉时，备份一起没了。至少每周把 `/opt/backups` 里最新那份拉到本地电脑（`scp ubuntu@IP:/opt/backups/inch-*.sql.gz .`）；想自动化就接腾讯云 COS，用 `coscli` 或 `rclone` 同步到对象存储。
 
 ### 证书
 
