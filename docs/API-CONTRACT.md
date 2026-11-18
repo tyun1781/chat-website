@@ -15,6 +15,7 @@ Application：`{id,user:{id,username,nickname,role,status},statement,status:"pen
 | GET /admin/users | active admin，query: q（用户名/昵称，最多64）、status、cursor、limit | 200 `{data:User[],page}`，按创建时间和 ID 倒序 |
 | PATCH /admin/users/:id/status | active admin+CSRF，`{status:"active"|"disabled",reason}` | 200 `{data:{user:User}}`；不能禁用自己或最后一个 active admin，返回 409 LAST_ADMIN；禁用时在同一事务撤销全部会话并写审计 |
 | DELETE /admin/messages/:id | active admin+CSRF，`{reason}` | 204，软删除并写 message.deleted 事件和审计；重复删除仍 204，不重复发事件或审计 |
+| GET /admin/audit-logs | active admin，query: cursor/limit（默认30/最大100） | 200 `{data:[{id,action,targetType,targetId,targetLabel,reason,createdAt,actor:{id,username,nickname}}],page:{nextCursor,hasMore},summary:{pendingApplications,recentActions}}`；按时间倒序，`recentActions` 为最近24小时操作数 |
 
 新增错误码：APPLICATION_PENDING / ALREADY_ADMIN / APPLICANT_UNAVAILABLE / APPLICATION_ALREADY_REVIEWED。管理员申请审批与账号状态、帖子删除的审计写入 `admin_audit_logs`，action 分别为 `admin_application.approved`、`admin_application.rejected`、`user.disabled`、`user.enabled`、`message.deleted`。
 

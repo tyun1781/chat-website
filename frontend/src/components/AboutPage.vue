@@ -5,8 +5,8 @@ const bilibiliUrl = 'https://space.bilibili.com/509574643'
 
 <template>
   <section class="about-page" aria-labelledby="about-title">
-    <div class="page-heading"><p lang="ja">はじめまして (｡･ω･｡)ﾉ</p><h1 id="about-title">关于作者</h1><span>来自 INCH 的一英寸自我介绍</span></div>
-    <article class="about-card">
+    <div v-reveal class="page-heading"><p lang="ja">はじめまして (｡･ω･｡)ﾉ</p><h1 id="about-title">关于作者</h1><span>来自 INCH 的一英寸自我介绍</span></div>
+    <article v-reveal="{ delay: 80 }" class="about-card">
       <div class="about-avatar" aria-hidden="true">✦</div>
       <p class="about-greeting">Ciallo～(∠・ω&lt; )⌒☆</p>
       <h2>inch.zy</h2>

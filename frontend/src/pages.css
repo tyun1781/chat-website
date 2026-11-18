@@ -91,3 +91,49 @@
 @media(max-width:720px){.notifications-page{padding:28px 16px 24px}}
 @media(max-width:850px){.header .main-nav{flex-wrap:wrap;row-gap:2px}}
 @media(max-width:520px){.header .main-nav{gap:7px 14px;min-height:38px;row-gap:4px}.main-nav .nav-separator{display:none}.main-nav button{white-space:nowrap}}
+
+/* Galgame navigation */
+.gal-nav-page{max-width:1040px;margin:0 auto;padding:44px 22px 30px}
+.gal-toolbar{display:flex;align-items:center;justify-content:space-between;gap:14px;margin:24px 0 10px;padding-bottom:12px;border-bottom:1px solid var(--line);font-size:11px;color:var(--muted)}
+.gal-note{font-size:10px;line-height:1.8;color:var(--muted);margin-bottom:18px}
+.gal-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:13px}
+.gal-link-card{display:flex;align-items:center;gap:15px;min-width:0;padding:17px 18px;background:#fff;border:1px solid var(--line);border-radius:14px;transition:border-color .18s,box-shadow .18s,transform .18s}
+.gal-link-card:hover{border-color:#b9d9f2;box-shadow:0 8px 24px rgba(22,119,210,.08);transform:translateY(-1px)}
+.gal-icon-wrap{display:grid;place-items:center;width:58px;height:58px;flex-shrink:0;overflow:hidden;border-radius:15px;background:#f2f8fd;border:1px solid #e2eef8}
+.gal-icon{display:block;width:100%;height:100%;object-fit:cover}
+.gal-icon-fallback{display:grid;place-items:center;width:100%;height:100%;background:linear-gradient(145deg,#e8f4ff,#fff3f8);color:#1677d2;font-size:22px;font-weight:800}
+.gal-link-body{display:flex;flex-direction:column;gap:5px;min-width:0;flex:1}
+.gal-link-title{display:flex;align-items:center;gap:8px;font-size:15px;font-weight:700;color:var(--ink);overflow-wrap:anywhere}
+.gal-link-arrow{margin-left:auto;color:#aac4dd;font-size:15px;font-weight:400}
+.gal-link-desc{font-size:11px;line-height:1.7;color:var(--muted);overflow-wrap:anywhere}
+.gal-tags{display:flex;gap:5px;flex-wrap:wrap;margin-top:2px}
+.gal-tags span{font-size:9px;color:#53697f;background:#f4f9ff;border:1px solid #e2eef8;border-radius:999px;padding:2px 7px}
+@media(max-width:720px){.gal-nav-page{padding:28px 16px 24px}.gal-grid{grid-template-columns:1fr}.gal-toolbar{align-items:flex-start;flex-direction:column;gap:6px}}
+@media(max-width:520px){.gal-link-card{padding:13px}.gal-icon-wrap{width:50px;height:50px;border-radius:13px}.gal-link-title{font-size:14px}}
+
+/* Admin activity log */
+.logs-page{max-width:1040px;margin:0 auto;padding:44px 22px 30px}
+.log-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:13px;margin-top:26px}
+.log-stat{display:flex;flex-direction:column;gap:5px;min-height:120px;padding:18px 20px;background:#fff;border:1px solid var(--line);border-radius:14px}
+.log-stat>span{font-size:10px;color:var(--muted);letter-spacing:.04em}
+.log-stat strong{font-size:30px;line-height:1.2;color:var(--ink)}
+.log-stat small{font-size:10px;color:var(--muted)}
+.log-stat-action{justify-content:center;align-items:flex-start}
+.log-stat-action .small-button{margin:2px 0 0}
+.log-section{margin-top:18px;padding:22px;background:#fff;border:1px solid var(--line);border-radius:14px}
+.log-section-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:16px}
+.log-section-heading h2{font-size:18px;margin-bottom:5px}
+.log-section-heading p{font-size:11px;line-height:1.7;color:var(--muted)}
+.log-list{display:grid;gap:10px;list-style:none;padding:0;margin:0}
+.log-item{padding:14px 16px;background:#fcfdff;border:1px solid #e7eef5;border-radius:10px}
+.log-item-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:12px}
+.log-item-head strong{color:var(--ink)}
+.log-item-head time{margin-left:auto;font-size:10px;color:var(--muted)}
+.log-action{font-size:10px;color:#315372;background:#eef7ff;border-radius:999px;padding:3px 8px}
+.log-action.is-positive{color:#1d6b48;background:#effaf3}
+.log-action.is-danger{color:#8b3b3b;background:#fff3f3}
+.log-target{margin:8px 0 0;font-size:11px;line-height:1.7;color:#41566b;overflow-wrap:anywhere}
+.log-reason{margin:7px 0 0;padding:8px 10px;background:#f4f8fc;border-radius:6px;font-size:11px;line-height:1.7;color:#53697f;white-space:pre-wrap;overflow-wrap:anywhere}
+.log-pending{border-color:#d4e6f5}
+.log-actions{display:flex;gap:8px;margin-top:10px}
+@media(max-width:720px){.logs-page{padding:28px 16px 24px}.log-summary{grid-template-columns:1fr}.log-section{padding:16px 14px}.log-section-heading{flex-direction:column;gap:8px}.log-item-head time{margin-left:0;flex-basis:100%}}

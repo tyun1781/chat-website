@@ -14,6 +14,19 @@ export interface AdminApplication {
   updatedAt: string
 }
 export interface AdminPage<T> { data: T[]; page: { nextCursor: string | null; hasMore: boolean } }
+export interface AuditLog {
+  id: string
+  action: string
+  targetType: 'user' | 'message'
+  targetId: string
+  targetLabel: string
+  reason: string | null
+  createdAt: string
+  actor: { id: string; username: string; nickname: string }
+}
+export interface AuditPage extends AdminPage<AuditLog> {
+  summary: { pendingApplications: number; recentActions: number }
+}
 
 function query(params: Record<string, string | undefined>) {
   const search = new URLSearchParams()
@@ -45,4 +58,7 @@ export function deleteAdminMessage(id: string, reason: string) {
 }
 export function getRecentMessages() {
   return request<Message[]>('/messages?limit=50')
+}
+export function getAdminAuditLogs(limit = 30, cursor?: string) {
+  return request<AuditPage>(`/admin/audit-logs${query({ limit: String(limit), cursor })}`, 'GET', undefined, true, { envelope: true })
 }

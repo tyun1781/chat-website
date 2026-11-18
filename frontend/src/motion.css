@@ -1,0 +1,32 @@
+:root {
+  --motion-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --motion-soft: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.reveal {
+  opacity: 1;
+  transform: none;
+  transition:
+    opacity 760ms var(--motion-ease) var(--reveal-delay, 0ms),
+    transform 980ms var(--motion-ease) var(--reveal-delay, 0ms);
+}
+
+.reveal.is-motion-pending {
+  opacity: 0;
+  transform: translate3d(0, 18px, 0);
+}
+
+.reveal.is-visible {
+  opacity: 1;
+  transform: translate3d(0, 0, 0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reveal,
+  .reveal.is-motion-pending,
+  .reveal.is-visible {
+    opacity: 1 !important;
+    transform: none !important;
+    transition: none !important;
+  }
+}

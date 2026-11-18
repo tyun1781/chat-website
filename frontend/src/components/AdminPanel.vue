@@ -97,28 +97,28 @@ async function submitMessageDelete() {
 
 <template>
   <section class="admin-page" aria-labelledby="admin-title">
-    <div class="page-heading"><p lang="ja">management room</p><h1 id="admin-title">管理台</h1><span>处理管理员申请、账号状态与公开帖子</span></div>
-    <div v-if="!isAdmin" class="admin-guard">
+    <div v-reveal class="page-heading"><p lang="ja">management room</p><h1 id="admin-title">管理台</h1><span>处理管理员申请、账号状态与公开帖子</span></div>
+    <div v-if="!isAdmin" v-reveal class="admin-guard">
       <span class="tool-mark" aria-hidden="true">✦</span>
       <h2>{{ user ? '需要管理员权限' : '请先登录管理员账号' }}</h2>
       <p>{{ user ? '当前账号不是管理员，无法进入管理台。' : '登录后，只有管理员账号才能进入这里。' }}</p>
       <div class="admin-guard-actions"><button v-if="!user" class="small-button" @click="emit('login')">登录</button><button class="text-link" @click="emit('forum')">返回讨论广场</button></div>
     </div>
     <template v-else>
-      <div class="admin-toolbar">
+      <div v-reveal class="admin-toolbar">
         <div class="admin-tabs" role="tablist" aria-label="管理台分类"><button :class="{ selected: tab === 'applications' }" role="tab" :aria-selected="tab === 'applications'" @click="tab = 'applications'">管理员申请</button><button :class="{ selected: tab === 'users' }" role="tab" :aria-selected="tab === 'users'" @click="tab = 'users'">用户</button><button :class="{ selected: tab === 'messages' }" role="tab" :aria-selected="tab === 'messages'" @click="tab = 'messages'">帖子</button></div>
         <button class="text-link" :disabled="applicationsLoading || usersLoading || messagesLoading" @click="loadAll">刷新</button>
       </div>
       <p v-if="error" class="message-error" role="alert">{{ error }}</p>
       <p v-if="notice" class="action-notice" role="status">{{ notice }}</p>
 
-      <section v-if="tab === 'applications'" class="admin-section" aria-labelledby="admin-applications-title">
+      <section v-if="tab === 'applications'" v-reveal class="admin-section" aria-labelledby="admin-applications-title">
         <div class="admin-section-heading"><div><h2 id="admin-applications-title">管理员申请</h2><p>通过后，用户会获得完整管理员权限；拒绝时必须填写理由。</p></div><div class="admin-filters"><button :class="{ selected: applicationFilter === 'pending' }" @click="applicationFilter = 'pending'; loadApplications()">待审批</button><button :class="{ selected: applicationFilter === 'all' }" @click="applicationFilter = 'all'; loadApplications()">全部</button></div></div>
         <p v-if="applicationsError" class="message-error" role="alert">{{ applicationsError }} <button class="text-link" @click="loadApplications">重试</button></p>
         <p v-else-if="applicationsLoading" class="quiet-state" role="status">正在加载申请…</p>
         <p v-else-if="!applications.length" class="quiet-state">暂时没有{{ applicationFilter === 'pending' ? '待审批' : '' }}申请。</p>
         <ul v-else class="admin-list">
-          <li v-for="application in applications" :key="application.id" class="admin-item">
+          <li v-for="(application, index) in applications" :key="application.id" v-reveal="{ delay: Math.min(index * 40, 160) }" class="admin-item">
             <div class="admin-item-head"><div><strong>{{ application.user.nickname }}</strong> <span class="admin-muted">@{{ application.user.username }} · {{ application.user.status === 'active' ? '正常' : '已禁用' }}</span></div><span class="application-status" :class="{ 'is-approved': application.status === 'approved', 'is-rejected': application.status === 'rejected' }">{{ application.status === 'pending' ? '待审批' : application.status === 'approved' ? '已通过' : '已拒绝' }}</span></div>
             <p class="admin-statement">{{ application.statement }}</p>
             <p class="admin-meta">提交于 {{ displayTime(application.createdAt) }}<template v-if="application.reviewedAt"> · 审批于 {{ displayTime(application.reviewedAt) }} · {{ application.reviewReason || '无备注' }}</template></p>
@@ -127,14 +127,14 @@ async function submitMessageDelete() {
         </ul>
       </section>
 
-      <section v-if="tab === 'users'" class="admin-section" aria-labelledby="admin-users-title">
+      <section v-if="tab === 'users'" v-reveal class="admin-section" aria-labelledby="admin-users-title">
         <div class="admin-section-heading"><div><h2 id="admin-users-title">用户</h2><p>禁用会立即撤销该用户的全部会话；恢复不会恢复旧会话。</p></div></div>
         <form class="admin-search" @submit.prevent="loadUsers"><label class="sr-only" for="admin-user-search">搜索用户名或昵称</label><input id="admin-user-search" v-model="userQuery" maxlength="64" placeholder="搜索用户名或昵称"><select v-model="userStatus" aria-label="账号状态筛选"><option value="">全部状态</option><option value="active">正常</option><option value="disabled">已禁用</option></select><button class="small-button" :disabled="usersLoading">搜索</button></form>
         <p v-if="usersError" class="message-error" role="alert">{{ usersError }} <button class="text-link" @click="loadUsers">重试</button></p>
         <p v-else-if="usersLoading" class="quiet-state" role="status">正在加载用户…</p>
         <p v-else-if="!users.length" class="quiet-state">没有符合条件的用户。</p>
         <ul v-else class="admin-list">
-          <li v-for="item in users" :key="item.id" class="admin-item admin-user-item">
+          <li v-for="(item, index) in users" :key="item.id" v-reveal="{ delay: Math.min(index * 40, 160) }" class="admin-item admin-user-item">
             <div class="admin-item-head"><div><strong>{{ item.nickname }}</strong> <span class="admin-muted">@{{ item.username }}</span></div><span class="admin-role">{{ item.role === 'admin' ? '管理员' : '普通用户' }} · {{ item.status === 'active' ? '正常' : '已禁用' }}</span></div>
             <p class="admin-meta">注册于 {{ displayTime(item.createdAt) }}</p>
             <div class="admin-actions"><button v-if="item.status === 'active'" class="admin-danger" @click="startUserAction(item, 'disabled')">禁用</button><button v-else class="small-button" @click="startUserAction(item, 'active')">恢复</button></div>
@@ -142,13 +142,13 @@ async function submitMessageDelete() {
         </ul>
       </section>
 
-      <section v-if="tab === 'messages'" class="admin-section" aria-labelledby="admin-messages-title">
+      <section v-if="tab === 'messages'" v-reveal class="admin-section" aria-labelledby="admin-messages-title">
         <div class="admin-section-heading"><div><h2 id="admin-messages-title">公开帖子</h2><p>显示最近 50 条公开帖子；管理员删除会写审计日志并广播删除事件。</p></div></div>
         <p v-if="messagesError" class="message-error" role="alert">{{ messagesError }} <button class="text-link" @click="loadMessages">重试</button></p>
         <p v-else-if="messagesLoading" class="quiet-state" role="status">正在加载帖子…</p>
         <p v-else-if="!messages.length" class="quiet-state">目前没有公开帖子。</p>
         <ul v-else class="admin-list">
-          <li v-for="item in messages" :key="item.id" class="admin-item">
+          <li v-for="(item, index) in messages" :key="item.id" v-reveal="{ delay: Math.min(index * 40, 160) }" class="admin-item">
             <div class="admin-item-head"><div><strong>{{ item.author.nickname }}</strong> <span class="admin-muted">#{{ item.tag || 'daily' }}</span></div><time class="admin-meta" :datetime="item.createdAt">{{ displayTime(item.createdAt) }}</time></div>
             <p class="admin-statement">{{ item.body }}</p>
             <div class="admin-actions"><button class="admin-danger" @click="startMessageDelete(item)">管理员删除</button></div>

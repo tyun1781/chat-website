@@ -10,6 +10,12 @@ type UserRow = {
  created_at:Date; updated_at:Date; cursor_created_at?:string;
 };
 type MessageRow = {id:string; author_id:string; body:string; deleted_at:Date|null};
+type AuditRow = {
+ id:string; action:string; target_type:'user'|'message'; target_id:string; reason:string|null;
+ created_at:Date; actor_id:string; actor_username:string; actor_nickname:string;
+ target_user_username:string|null; target_user_nickname:string|null;
+ target_message_body:string|null; cursor_created_at?:string;
+};
 type ApplicationRow = {
  id:string; user_id:string; statement:string; status:'pending'|'approved'|'rejected';
  reviewed_by:string|null; reviewed_at:Date|null; review_reason:string|null;
@@ -34,6 +40,19 @@ const applicationValue = (row:ApplicationRow) => ({
  updatedAt:new Date(row.updated_at).toISOString()
 });
 const pageValue = (row:{id:string;cursor_created_at?:string}) => Buffer.from(JSON.stringify({createdAt:row.cursor_created_at!,id:row.id})).toString('base64url');
+const excerpt = (text:string|null,max=48) => text ? ([...text].length>max ? [...text].slice(0,max).join('')+'…' : text) : null;
+const auditValue = (row:AuditRow) => ({
+ id:row.id,
+ action:row.action,
+ targetType:row.target_type,
+ targetId:row.target_id,
+ targetLabel:row.target_type==='user'
+  ? (row.target_user_username?`@${row.target_user_username}（${row.target_user_nickname}）`:'用户已不存在')
+  : (row.target_message_body?`帖子：${excerpt(row.target_message_body,56)}`:'帖子已不存在'),
+ reason:row.reason,
+ createdAt:new Date(row.created_at).toISOString(),
+ actor:{id:row.actor_id,username:row.actor_username,nickname:row.actor_nickname}
+});
 const applicationSelect = `SELECT a.*,u.username,u.nickname,u.role AS user_role,u.status AS user_status,
  r.nickname AS reviewer_nickname,
  to_char(a.created_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS cursor_created_at
@@ -141,6 +160,28 @@ export function registerAdmin(app:FastifyInstance,pool:Pool,auth:ReturnType<type
   const rows=(await client.query<UserRow>(`SELECT id,username,nickname,role,status,created_at,updated_at,to_char(created_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS cursor_created_at FROM users WHERE ${where} ORDER BY created_at DESC,id DESC LIMIT $${values.length}`,values)).rows;
   const batch=rows.slice(0,limit),hasMore=rows.length>limit;
   return {data:batch.map(userValue),page:{nextCursor:hasMore?pageValue(batch.at(-1)!):null,hasMore}};
+ }));
+
+ app.get('/api/admin/audit-logs',async(request)=>transaction(pool,async(client)=>{
+  const query=objectBody(request.query,['cursor','limit']);
+  const cursor=pageCursor(query.cursor),limit=pageLimit(query.limit,30,100);
+  await current(client,request);
+  const values:unknown[]=[];let where='1=1';
+  if(cursor){values.push(cursor.createdAt,cursor.id);where+=` AND (l.created_at,l.id)<($1::timestamptz,$2::uuid)`;}
+  values.push(limit+1);
+  const offset=values.length-1;
+  const rows=(await client.query<AuditRow>(`SELECT l.*,a.username AS actor_username,a.nickname AS actor_nickname,
+   tu.username AS target_user_username,tu.nickname AS target_user_nickname,tm.body AS target_message_body,
+   to_char(l.created_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS cursor_created_at
+   FROM admin_audit_logs l
+   JOIN users a ON a.id=l.actor_id
+   LEFT JOIN users tu ON l.target_type='user' AND tu.id=l.target_id
+   LEFT JOIN messages tm ON l.target_type='message' AND tm.id=l.target_id
+   WHERE ${where} ORDER BY l.created_at DESC,l.id DESC LIMIT $${offset+1}`,values)).rows;
+  const batch=rows.slice(0,limit),hasMore=rows.length>limit;
+  const pending=(await client.query<{count:number}>("SELECT count(*)::int AS count FROM admin_applications WHERE status='pending'")).rows[0]!.count;
+  const recent=(await client.query<{count:number}>("SELECT count(*)::int AS count FROM admin_audit_logs WHERE created_at>now()-interval '24 hours'")).rows[0]!.count;
+  return {data:batch.map(auditValue),page:{nextCursor:hasMore?pageValue(batch.at(-1)!):null,hasMore},summary:{pendingApplications:pending,recentActions:recent}};
  }));
 
  app.patch('/api/admin/users/:id/status',async(request)=>transaction(pool,async(client)=>{

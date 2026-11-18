@@ -13,11 +13,11 @@ watch(() => messages.value.at(-1)?.id, () => { nextTick(() => { if (history.valu
 </script>
 <template>
   <section class="inbox" aria-labelledby="inbox-title">
-    <div class="inbox-heading"><div><h1 id="inbox-title">悄悄话信箱</h1><p>把话题留给彼此，不会出现在公开讨论区。</p></div><span v-if="user" class="status-label" role="status">{{ status }}</span></div>
-    <div v-if="!user" class="inbox-login"><span class="letter-icon" aria-hidden="true">✉</span><h2>你的专属聊天空间</h2><p>登录后，搜索昵称或点击帖子作者，即可发起一对一私聊。</p><button class="primary-button" @click="emit('login')">登录，打开信箱</button></div>
+    <div v-reveal class="inbox-heading"><div><h1 id="inbox-title">悄悄话信箱</h1><p>把话题留给彼此，不会出现在公开讨论区。</p></div><span v-if="user" class="status-label" role="status">{{ status }}</span></div>
+    <div v-if="!user" v-reveal="{ delay: 80 }" class="inbox-login"><span class="letter-icon" aria-hidden="true">✉</span><h2>你的专属聊天空间</h2><p>登录后，搜索昵称或点击帖子作者，即可发起一对一私聊。</p><button class="primary-button" @click="emit('login')">登录，打开信箱</button></div>
     <template v-else>
       <p v-if="error" class="message-error" role="alert">{{ error }} <button class="text-link" @click="active ? loadMessages() : start()">重试</button></p>
-      <div class="inbox-layout" :class="{ 'has-selection': hasSelected && active }">
+      <div v-reveal="{ delay: 80 }" class="inbox-layout" :class="{ 'has-selection': hasSelected && active }">
         <aside class="inbox-list" aria-label="私聊列表">
           <form class="user-search" @submit.prevent="search"><label class="sr-only" for="people-search">搜索用户昵称</label><input id="people-search" v-model="query" maxlength="64" placeholder="搜索昵称，认识同好" autocomplete="off"><button :disabled="searching || !query.trim() || Array.from(query.trim()).length > 32">{{ searching ? '查找中' : '搜索' }}</button></form>
           <p v-if="searchError" class="search-error" role="status">{{ searchError }}</p>

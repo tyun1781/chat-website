@@ -3,7 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { restoreSession, user } from '../api'
 import { applyForAdmin, getMyApplication, type AdminApplication } from '../adminApi'
 import { displayTime, failureMessage } from '../forumTypes'
-const emit = defineEmits<{ login: []; admin: [] }>()
+const emit = defineEmits<{ login: []; admin: []; gal: [] }>()
 const application = ref<AdminApplication | null>(null)
 const loading = ref(false), loadError = ref(''), submitting = ref(false)
 const statement = ref(''), error = ref(''), notice = ref('')
@@ -47,17 +47,17 @@ watch(() => user.value?.id, () => { void load() }, { immediate: true })
 
 <template>
   <section class="tools-page" aria-labelledby="tools-title">
-    <div class="page-heading"><p lang="ja">ちょっと寄り道 (´▽`)</p><h1 id="tools-title">工具</h1><span>导航、权限申请与一些之后会慢慢补上的小工具</span></div>
+    <div v-reveal class="page-heading"><p lang="ja">ちょっと寄り道 (´▽`)</p><h1 id="tools-title">工具</h1><span>导航、权限申请与一些之后会慢慢补上的小工具</span></div>
     <div class="tool-grid">
-      <section class="tool-card gal-card" aria-labelledby="gal-title">
+      <section v-reveal="{ delay: 60 }" class="tool-card gal-card" aria-labelledby="gal-title">
         <span class="tool-mark" aria-hidden="true">⌘</span>
         <p class="side-kicker" lang="ja">gal navigation</p>
-        <h2 id="gal-title">gal 导航</h2>
-        <p>把喜欢的作品、资源和同好站点收在一处。导航链接正在整理中，之后会在这里开放。</p>
-        <button class="text-link" type="button" disabled>链接准备中</button>
+        <h2 id="gal-title">来点galgame？</h2>
+        <p>视觉小说、Galgame 社区与资源站点，挑一个感兴趣的地方进去逛逛。</p>
+        <button class="small-button" type="button" @click="emit('gal')">进去看看</button>
       </section>
 
-      <section class="tool-card" aria-labelledby="apply-title">
+      <section v-reveal="{ delay: 140 }" class="tool-card" aria-labelledby="apply-title">
         <span class="tool-mark" aria-hidden="true">✦</span>
         <p class="side-kicker" lang="ja">admin application</p>
         <h2 id="apply-title">申请管理员权限</h2>

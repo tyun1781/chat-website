@@ -8,6 +8,8 @@ import ToolsPage from './components/ToolsPage.vue'
 import AboutPage from './components/AboutPage.vue'
 import AdminPanel from './components/AdminPanel.vue'
 import NotificationsPanel from './components/NotificationsPanel.vue'
+import GalNavPage from './components/GalNavPage.vue'
+import AdminLogPage from './components/AdminLogPage.vue'
 import { usePresence } from './usePresence'
 import { clearNotifications, refreshUnread, unreadNotifications } from './notificationsApi'
 import type { Person } from './forumTypes'
@@ -20,7 +22,7 @@ const dialog = ref<HTMLDialogElement>()
 const username = ref(''), password = ref(''), nickname = ref(''), currentPassword = ref(''), newPassword = ref('')
 const busy = ref(false), restoring = ref(true), error = ref(''), notice = ref(''), connectionError = ref('')
 const fields = ref<Record<string, string>>({})
-const view = ref<'forum' | 'inbox' | 'home' | 'tools' | 'about' | 'admin' | 'notifications'>('forum')
+const view = ref<'forum' | 'inbox' | 'home' | 'tools' | 'about' | 'admin' | 'notifications' | 'gal' | 'logs'>('forum')
 const presence = usePresence()
 const recipient = ref<Person | null>(null)
 function openChat(person: Person) {
@@ -67,7 +69,7 @@ async function submit() {
 async function logout() {
   if (busy.value) return
   busy.value = true
-  try { await request('/auth/logout', 'POST'); clearSession(); clearNotifications(); notice.value = '已退出登录。'; if (view.value === 'admin' || view.value === 'notifications') view.value = 'forum' }
+  try { await request('/auth/logout', 'POST'); clearSession(); clearNotifications(); notice.value = '已退出登录。'; if (view.value === 'admin' || view.value === 'notifications' || view.value === 'logs') view.value = 'forum' }
   catch (e) { notice.value = e instanceof Error ? e.message : '退出失败，请重试。' }
   finally { busy.value = false }
 }
@@ -107,7 +109,7 @@ onUnmounted(() => { document.removeEventListener('keydown', onKey); document.bod
   <div class="site" :inert="!entered" :aria-hidden="!entered">
     <header class="header">
       <a class="wordmark" href="#" aria-label="INCH 返回讨论广场" @click.prevent="view = 'forum'"><span class="logo" aria-hidden="true">✦</span><span>INCH<small lang="ja">ここで、ひとやすみ。</small></span></a>
-      <nav class="main-nav" aria-label="主导航"><button :class="{ selected: view === 'home' }" :aria-current="view === 'home' ? 'page' : undefined" @click="view = 'home'">主页</button><button :class="{ selected: view === 'tools' }" :aria-current="view === 'tools' ? 'page' : undefined" @click="view = 'tools'">工具</button><button :class="{ selected: view === 'about' }" :aria-current="view === 'about' ? 'page' : undefined" @click="view = 'about'">关于作者</button><span class="nav-separator" aria-hidden="true"></span><button :class="{ selected: view === 'forum' }" :aria-current="view === 'forum' ? 'page' : undefined" @click="view = 'forum'">广场</button><button :class="{ selected: view === 'inbox' }" :aria-current="view === 'inbox' ? 'page' : undefined" @click="openInbox">私聊</button><button v-if="user" :class="{ selected: view === 'notifications' }" :aria-current="view === 'notifications' ? 'page' : undefined" @click="view = 'notifications'">通知<span v-if="unreadNotifications" class="nav-badge">{{ unreadNotifications > 99 ? '99+' : unreadNotifications }}</span></button><button v-if="user?.role === 'admin'" :class="{ selected: view === 'admin' }" :aria-current="view === 'admin' ? 'page' : undefined" @click="view = 'admin'">管理</button></nav>
+      <nav class="main-nav" aria-label="主导航"><button :class="{ selected: view === 'home' }" :aria-current="view === 'home' ? 'page' : undefined" @click="view = 'home'">主页</button><button :class="{ selected: view === 'tools' }" :aria-current="view === 'tools' ? 'page' : undefined" @click="view = 'tools'">工具</button><button :class="{ selected: view === 'about' }" :aria-current="view === 'about' ? 'page' : undefined" @click="view = 'about'">关于作者</button><span class="nav-separator" aria-hidden="true"></span><button :class="{ selected: view === 'forum' }" :aria-current="view === 'forum' ? 'page' : undefined" @click="view = 'forum'">广场</button><button :class="{ selected: view === 'inbox' }" :aria-current="view === 'inbox' ? 'page' : undefined" @click="openInbox">私聊</button><button v-if="user" :class="{ selected: view === 'notifications' }" :aria-current="view === 'notifications' ? 'page' : undefined" @click="view = 'notifications'">通知<span v-if="unreadNotifications" class="nav-badge">{{ unreadNotifications > 99 ? '99+' : unreadNotifications }}</span></button><button v-if="user?.role === 'admin'" :class="{ selected: view === 'admin' }" :aria-current="view === 'admin' ? 'page' : undefined" @click="view = 'admin'">管理</button><button v-if="user?.role === 'admin'" :class="{ selected: view === 'logs' }" :aria-current="view === 'logs' ? 'page' : undefined" @click="view = 'logs'">日志通知</button></nav>
       <nav class="account-nav" aria-label="账号导航">
         <span class="presence-indicator" :class="{ unavailable: presence.unavailable.value }" role="status" title="当前保持连接的访客浏览器数量，同一浏览器去重">{{ presence.label.value }}</span>
         <span v-if="restoring" class="muted" role="status">正在恢复登录…</span>
@@ -119,12 +121,14 @@ onUnmounted(() => { document.removeEventListener('keydown', onKey); document.bod
       <div v-if="sessionNotice" class="banner warning" role="alert">{{ sessionNotice }} <button @click="open('login')">重新登录</button></div>
       <div v-if="connectionError" class="banner warning" role="alert">{{ connectionError }} <button :disabled="restoring" @click="restore">重试连接</button></div>
       <div v-if="notice && !panel" class="banner" role="status">{{ notice }}</div>
-      <ForumHome v-show="view === 'forum'" :restoring="restoring" @login="open('login')" @profile="open('profile')" @chat="openChat" @inbox="openInbox" />
+      <ForumHome v-show="view === 'forum'" :active="view === 'forum' && entered" :restoring="restoring" @login="open('login')" @profile="open('profile')" @chat="openChat" @inbox="openInbox" />
       <InboxPanel v-if="view === 'inbox'" :recipient="recipient" @login="open('login')" @opened="recipient = null" />
       <AccountHome v-if="view === 'home'" @login="open('login')" @register="open('register')" @nickname="open('profile')" @password="open('password')" @forum="view = 'forum'" />
-      <ToolsPage v-if="view === 'tools'" @login="open('login')" @admin="view = 'admin'" />
+      <ToolsPage v-if="view === 'tools'" @login="open('login')" @admin="view = 'admin'" @gal="view = 'gal'" />
+      <GalNavPage v-if="view === 'gal'" @back="view = 'tools'" />
       <AboutPage v-if="view === 'about'" @forum="view = 'forum'" />
       <AdminPanel v-if="view === 'admin'" @login="open('login')" @forum="view = 'forum'" />
+      <AdminLogPage v-if="view === 'logs'" @login="open('login')" @admin="view = 'admin'" @forum="view = 'forum'" />
       <NotificationsPanel v-if="view === 'notifications'" @login="open('login')" @forum="view = 'forum'" />
     </main>
     <footer><span class="footer-brand">INCH <span lang="ja">またね ( ´ ▽ ` )ﾉ</span></span><span>inch.zy <a href="https://github.com/tyun1781/chat-website" target="_blank" rel="noopener noreferrer">GitHub?</a></span></footer>
