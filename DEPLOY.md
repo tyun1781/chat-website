@@ -358,7 +358,7 @@ ls -lh /opt/backups/
 然后挂到 cron（**先确认 cron 在跑**）：
 
 ```bash
-systemctl is-active cron || (apt-get install -y cron && systemctl enable --now cron)
+systemctl is-active cron || (DEBIAN_FRONTEND=noninteractive NEEDRESTART_SUSPEND=1 apt-get install -y cron && systemctl enable --now cron)
 
 cat > /etc/cron.d/inch-backup <<'EOF'
 0 4 * * * root /opt/chat-website/backup.sh >> /var/log/inch-backup.log 2>&1
